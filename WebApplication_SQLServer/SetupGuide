@@ -1,0 +1,15 @@
+Firstly, download all files from the WebApplication_SQLServer folder and place them in local folder C:\Scripts.
+
+Open PowerShell as Administrator and run the below commands:
+
+Set-ExecutionPolicy Unrestricted -Scope CurrentUser
+
+Unblock-File C:\Scripts\Stage1_InstallPrerequsites.ps1
+
+Unblock-File C:\Scripts\Stage2_ConfigureApps.ps1
+
+Then run the scripts (still running PowerShell as administrator) using the below commands. The scripts may require restarts and re-runs. It is safe to re-run the scripts until everything is installed/setup correctly.
+
+& C:\Scripts\Stage1_InstallPrerequsites.ps1
+
+& C:\Scripts\Stage2_ConfigureApps.ps1
