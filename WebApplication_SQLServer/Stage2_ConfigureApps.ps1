@@ -289,12 +289,16 @@ if ((Test-Path $webRepoPath) -and (Test-GitRepo -Path $webRepoPath)) {
     & git -C $webRepoPath ls-remote --exit-code --heads origin development *> $null
     $hasRemoteDev = ($LASTEXITCODE -eq 0)
 
-    if ($hasRemoteDev) {
-        # If local 'development' doesn't exist, create tracking from origin/development
-        & git -C $webRepoPath rev-parse --verify development 2>$null | Out-Null
-        if ($LASTEXITCODE -ne 0) {
+    if ($hasRemoteDev) {       
+        # Check if local branch exists
+        & git -C $webRepoPath show-ref --verify --quiet refs/heads/development
+        $hasLocalDev = ($LASTEXITCODE -eq 0)
+
+        if (-not $hasLocalDev) {
+            Write-Host "Creating local 'development' branch tracking origin/development..." -ForegroundColor Cyan
             & git -C $webRepoPath checkout -b development origin/development
         } else {
+            Write-Host "Checking out existing 'development' branch..." -ForegroundColor Cyan
             & git -C $webRepoPath checkout development
         }
         if ($LASTEXITCODE -ne 0) { Write-Host "Failed to checkout 'development'." -ForegroundColor Yellow }
