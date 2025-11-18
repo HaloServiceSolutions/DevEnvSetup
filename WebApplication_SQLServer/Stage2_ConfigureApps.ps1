@@ -198,6 +198,39 @@ function Set-VSStartupProjects {
     }
 }
 
+function Invoke-GitQuiet {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $RepoPath,
+
+        [Parameter(Mandatory = $true)]
+        [string[]] $Arguments
+    )
+
+    $tempFile = [System.IO.Path]::GetTempFileName()
+
+    try {
+        $proc = Start-Process -FilePath 'git' `
+            -ArgumentList (@('-C', $RepoPath) + $Arguments) `
+            -RedirectStandardOutput $tempFile `
+            -RedirectStandardError  $tempFile `
+            -NoNewWindow -Wait -PassThru
+
+        $output = ''
+        if (Test-Path $tempFile) {
+            $output = Get-Content $tempFile -Raw
+        }
+
+        [pscustomobject]@{
+            ExitCode = $proc.ExitCode
+            Output   = $output
+        }
+    }
+    finally {
+        Remove-Item $tempFile -ErrorAction SilentlyContinue
+    }
+}
+
 # ---- Start ----
 Refresh-EnvPath
 $complete = $true
@@ -282,37 +315,51 @@ foreach ($repo in $repos) {
 $webRepoPath = "C:\nethelpdesk_web"
 if ((Test-Path $webRepoPath) -and (Test-GitRepo -Path $webRepoPath)) {
     Write-Host "Ensuring 'development' branch in nethelpdesk_web ..." -ForegroundColor Cyan
-    & git -C $webRepoPath fetch origin
-    if ($LASTEXITCODE -ne 0) { throw "git fetch failed in $webRepoPath" }
 
-    # Does remote branch exist?
-    & git -C $webRepoPath ls-remote --exit-code --heads origin development *> $null
-    $hasRemoteDev = ($LASTEXITCODE -eq 0)
+    # 1. fetch origin
+    $fetch = Invoke-GitQuiet -RepoPath $webRepoPath -Arguments @('fetch', 'origin')
+    if ($fetch.ExitCode -ne 0) {
+        Write-Host $fetch.Output -ForegroundColor Red
+        throw "git fetch failed in $webRepoPath"
+    }
 
-    if ($hasRemoteDev) {       
-        # Check if local 'development' branch exists without triggering errors
-        $branchOutput = & git -C $webRepoPath branch --list development 2>$null
-        $hasLocalDev = -not [string]::IsNullOrWhiteSpace($branchOutput)
+    # 2. does remote branch origin/development exist
+    $remoteDev = Invoke-GitQuiet -RepoPath $webRepoPath -Arguments @('ls-remote', '--exit-code', '--heads', 'origin', 'development')
+    $hasRemoteDev = ($remoteDev.ExitCode -eq 0)
+
+    if ($hasRemoteDev) {
+        # 3. does local development branch exist
+        $localBranch = Invoke-GitQuiet -RepoPath $webRepoPath -Arguments @('branch', '--list', 'development')
+        $hasLocalDev = -not [string]::IsNullOrWhiteSpace($localBranch.Output)
 
         if (-not $hasLocalDev) {
             Write-Host "Creating local 'development' branch tracking origin/development..." -ForegroundColor Cyan
-            & git -C $webRepoPath checkout -b development origin/development
+            $coNew = Invoke-GitQuiet -RepoPath $webRepoPath -Arguments @('checkout', '-b', 'development', 'origin/development')
+            if ($coNew.ExitCode -ne 0) {
+                Write-Host $coNew.Output -ForegroundColor Yellow
+                Write-Host "Failed to create and checkout 'development'." -ForegroundColor Yellow
+            }
         } else {
             Write-Host "Checking out existing 'development' branch..." -ForegroundColor Cyan
-            & git -C $webRepoPath checkout development
+            $coDev = Invoke-GitQuiet -RepoPath $webRepoPath -Arguments @('checkout', 'development')
+            if ($coDev.ExitCode -ne 0) {
+                Write-Host $coDev.Output -ForegroundColor Yellow
+                Write-Host "Failed to checkout 'development'." -ForegroundColor Yellow
+            }
         }
 
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "Failed to checkout 'development'." -ForegroundColor Yellow
+        # 4. fast forward pull
+        $pull = Invoke-GitQuiet -RepoPath $webRepoPath -Arguments @('pull', '--ff-only')
+        if ($pull.ExitCode -ne 0) {
+            Write-Host $pull.Output -ForegroundColor Yellow
+            Write-Host "Fast forward not possible on 'development'." -ForegroundColor Yellow
         }
-
-        # Fast-forward
-        & git -C $webRepoPath pull --ff-only
-        if ($LASTEXITCODE -ne 0) { Write-Host "Fast-forward not possible on 'development'." -ForegroundColor Yellow }
-    } else {
+    }
+    else {
         Write-Host "Remote branch 'origin/development' not found. Staying on current branch." -ForegroundColor Yellow
     }
-} else {
+}
+else {
     Write-Host "Directory missing or not a git repo: $webRepoPath" -ForegroundColor Red
     $complete = $false
 }
