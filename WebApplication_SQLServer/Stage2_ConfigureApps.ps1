@@ -207,27 +207,38 @@ function Invoke-GitQuiet {
         [string[]] $Arguments
     )
 
-    $tempFile = [System.IO.Path]::GetTempFileName()
+    $tempOut = [System.IO.Path]::GetTempFileName()
+    $tempErr = [System.IO.Path]::GetTempFileName()
 
     try {
         $proc = Start-Process -FilePath 'git' `
             -ArgumentList (@('-C', $RepoPath) + $Arguments) `
-            -RedirectStandardOutput $tempFile `
-            -RedirectStandardError  $tempFile `
+            -RedirectStandardOutput $tempOut `
+            -RedirectStandardError  $tempErr `
             -NoNewWindow -Wait -PassThru
 
-        $output = ''
-        if (Test-Path $tempFile) {
-            $output = Get-Content $tempFile -Raw
+        $stdout = ''
+        $stderr = ''
+
+        if (Test-Path $tempOut) {
+            $stdout = Get-Content $tempOut -Raw
         }
+        if (Test-Path $tempErr) {
+            $stderr = Get-Content $tempErr -Raw
+        }
+
+        # Combine for convenience (you can split them if you like)
+        $allOutput = ($stdout + "`n" + $stderr).Trim()
 
         [pscustomobject]@{
             ExitCode = $proc.ExitCode
-            Output   = $output
+            Output   = $allOutput
+            StdOut   = $stdout
+            StdErr   = $stderr
         }
     }
     finally {
-        Remove-Item $tempFile -ErrorAction SilentlyContinue
+        Remove-Item $tempOut, $tempErr -ErrorAction SilentlyContinue
     }
 }
 
