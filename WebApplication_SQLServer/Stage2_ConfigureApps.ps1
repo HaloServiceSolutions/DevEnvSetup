@@ -244,6 +244,7 @@ function Invoke-GitQuiet {
 
 # ---- Start ----
 Refresh-EnvPath
+$hostname = $env:COMPUTERNAME
 $complete = $true
 $gh = Get-GhPath
 
@@ -409,6 +410,7 @@ if (Test-SqlEngineInstalled) {
         if (Test-Path $regPath) {
             $sqlInstance = if ($inst.Name -ieq 'MSSQLSERVER') { 'localhost' } else { "localhost\$($inst.Name)" }
             $databaseName = "DevelopmentDB"
+            $multitenantDbName = "Multitenant"
 
             if (-not (Test-Path $backupFile)) {
                 Write-Host "Backup file not found: $backupFile - skipping restore." -ForegroundColor Yellow
@@ -523,6 +525,66 @@ if (Test-SqlEngineInstalled) {
                     $complete = $false
                 }
             }
+            
+            # Check if Multitenant DB exists
+            $query = "SELECT DB_ID(N'$multitenantDbName') AS DbId;"
+            $result = Invoke-Sqlcmd -ServerInstance $sqlInstance -Database master -Query $query -TrustServerCertificate
+            $skipMultitenantDb = $false
+            if ($result.DbId) {
+                Write-Host "Database '$multitenantDbName' already exists." -ForegroundColor Yellow
+
+                # Prompt the user
+                $response = Read-Host "Do you want to replace it? (Y/N)"
+                if ($response -notin @('Y', 'y', 'Yes', 'yes')) {
+                    Write-Host "Skipping create for '$multitenantDbName'." -ForegroundColor Cyan
+                    $skipMultitenantDb = $true
+                } else {
+                    $response = Read-Host "Are you sure? (Y/N)"
+                    if ($response -notin @('Y', 'y', 'Yes', 'yes')) {
+                        Write-Host "Skipping create for '$multitenantDbName'." -ForegroundColor Cyan
+                        $skipMultitenantDb = $true
+                    }
+                }
+            }
+            else {
+                Write-Host "Database '$multitenantDbName' does not exist - proceeding with create." -ForegroundColor Green
+            }
+            # Create Multitenant DB
+            if ($skipMultitenantDb -eq $false)
+            {
+                $multitenantTsql = "CREATE DATABASE [Multitenant]"
+
+                Write-Host "Creating Multitenant database." -ForegroundColor Cyan
+                Invoke-Sqlcmd -TrustServerCertificate -ServerInstance $sqlInstance -Database master -Query $multitenantTsql -QueryTimeout 0
+                Write-Host "Database created as '$multitenantDbName'." -ForegroundColor Green
+
+                # ==== Run post-create SQL script on DevelopmentDB ====
+                $sqlFile = "C:\Scripts\MultiTenant.sql"
+                if (Test-Path $sqlFile) {
+                    Write-Host "Running $sqlFile against $databaseName ..." -ForegroundColor Cyan
+                    Invoke-Sqlcmd -TrustServerCertificate -ServerInstance $sqlInstance -Database $databaseName -InputFile $sqlFile -QueryTimeout 0
+                    Write-Host "Post-restore script completed." -ForegroundColor Green
+                } else {
+                    Write-Host "SQL script not found: $sqlFile" -ForegroundColor Red
+                    $complete = $false
+                }
+                # Insert rescords into AppTenant
+                $multitenantTsql = (@("INSERT INTO [dbo].[AppTenant]",
+                        " ([key]",
+                        " ,[hostname]",
+                        " ,[connectionstring]",
+                        " ,[connectionstringwindows]",
+                        " ,[Version]",
+                        " ,[TargetVersion])",
+                    " VALUES",
+                        " ('dev'",
+                        " ,'localhost'",
+                        " ,'Server={0};Database=DevelopmentDB;User ID=sa;Password=NetHelpDesk99;Trusted_Connection=true;MultipleActiveResultSets=true'",
+                        " ,'Server={0};Database=DevelopmentDB;User ID=sa;Password=NetHelpDesk99;Trusted_Connection=true;MultipleActiveResultSets=true'",
+                        " ,'2.208.1'"
+                        " ,'')")-join "`n") -f $hostname
+                Invoke-Sqlcmd -TrustServerCertificate -ServerInstance $sqlInstance -Database master -Query $multitenantTsql -QueryTimeout 0
+            }
         }
     }
 } else {
@@ -548,7 +610,6 @@ $apiPath = "C:\nethelpdesk_web\nethelpdesk_api\NetHelpDesk.API"
 $authPAth = "C:\nethelpdesk_web\nethelpdesk_api\NetHelpDesk.Auth"
 $APIAppSettings = Join-Path $apiPath "appsettings.development.json"
 $authAppSettings = Join-Path $authPath "appsettings.development.json"
-$hostname = $env:COMPUTERNAME
 
 if (-not (Test-Path $apiPath)) {
     Write-Host "API folder not found: $apiPath" -ForegroundColor Red
@@ -563,6 +624,8 @@ if (-not (Test-Path $apiPath)) {
         ProcessAutomations  = $false
         ProcessOutgoing     = $false
         ProcessSchedules    = $false
+        UseMultiTenancy     = $false
+        UseDistributedMemoryCache = $false
     }
     $apijson = $apiObj | ConvertTo-Json -Depth 5
 
@@ -573,7 +636,7 @@ if (-not (Test-Path $apiPath)) {
 
 
 if (-not (Test-Path $authPAth)) {
-    Write-Host "API folder not found: $authPAth" -ForegroundColor Red
+    Write-Host "Auth folder not found: $authPAth" -ForegroundColor Red
     $complete = $false
 } else {
     $authObj = @{
@@ -581,6 +644,7 @@ if (-not (Test-Path $authPAth)) {
         ConnectionStrings = @{ DefaultConnection = "Server=$hostname;Database=DevelopmentDB;User ID=sa;Password=NetHelpDesk99;Trusted_Connection=False;MultipleActiveResultSets=true" }
         Logging           = @{ IncludeScopes = $false; LogLevel = @{ Default = "Warning" } }
         UseReferenceTokens  = $true
+        UseMultiTenancy     = $false
     }
     $authjson = $authObj | ConvertTo-Json -Depth 5
 
