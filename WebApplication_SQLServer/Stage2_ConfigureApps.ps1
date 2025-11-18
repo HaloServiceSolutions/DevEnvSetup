@@ -397,6 +397,8 @@ if (Test-Path $backupFile) {
     }
 }
 
+Install-PackageProvider -Name NuGet -Force -Scope AllUsers
+
 # ==== Restore DB: OneClickV2ITSM.bak -> DevelopmentDB ====
 # Only try to restore DB if SQL Server is installed
 if (Test-SqlEngineInstalled) {
