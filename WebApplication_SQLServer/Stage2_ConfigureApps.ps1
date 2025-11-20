@@ -269,7 +269,8 @@ function Set-VSStartupProjects {
         # Resolve requested project names:
         # 1. Try DTE project list
         # 2. If not found, fall back to .sln project map
-        $resolved = @()
+        $resolved = New-Object System.Collections.Generic.List[string]
+
         foreach ($name in $Projects) {
             $match = $all | Where-Object {
                 $_.UniqueName -ieq $name -or
@@ -278,26 +279,37 @@ function Set-VSStartupProjects {
             } | Select-Object -First 1
 
             if ($match) {
-                $resolved += $match.UniqueName
+                [void]$resolved.Add($match.UniqueName)
                 continue
             }
 
             # Fallback: use .sln data
             $key = $name.ToLowerInvariant()
             if ($slnProjectMap.ContainsKey($key)) {
-                $resolved += $slnProjectMap[$key]
+                [void]$resolved.Add($slnProjectMap[$key])
             }
             else {
                 throw "Project '$name' not found in DTE or solution file '$SolutionPath'."
             }
         }
 
-        # Set startup projects (array = multi startup)
-        $dte.Solution.SolutionBuild.StartupProjects = $resolved
+        # Explicitly cast to object[] for COM
+        $startupArray = [object[]]$resolved.ToArray()
 
-        # Success output
+        # Set startup projects (multi startup = object[] of UniqueName strings)
+        $dte.Solution.SolutionBuild.StartupProjects = $startupArray
+
+        # Read back what VS thinks the startup projects are
+        $current = $dte.Solution.SolutionBuild.StartupProjects
+        $currentList = @()
+        if ($current -is [object[]]) {
+            $currentList = $current
+        } elseif ($current -ne $null) {
+            $currentList = @($current)
+        }
+
         Write-Host "Successfully set startup projects:" -ForegroundColor Green
-        foreach ($p in $resolved) {
+        foreach ($p in $currentList) {
             Write-Host "  $p" -ForegroundColor Green
         }
 
