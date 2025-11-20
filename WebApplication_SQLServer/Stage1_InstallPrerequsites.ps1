@@ -121,15 +121,15 @@ function Test-VSWorkload {
 
     # Map winget-style names -> Visual Studio workload IDs
     $map = @{
-        'visualstudio2022-workload-netweb'         = 'Microsoft.VisualStudio.Workload.NetWeb'
-        'visualstudio2022-workload-azure'          = 'Microsoft.VisualStudio.Workload.Azure'
-        'visualstudio2022-workload-node'           = 'Microsoft.VisualStudio.Workload.Node'
-        'visualstudio2022-workload-netcrossplat'   = 'Microsoft.VisualStudio.Workload.NetCrossPlat'
-        'visualstudio2022-workload-manageddesktop' = 'Microsoft.VisualStudio.Workload.ManagedDesktop'
-        'visualstudio2022-workload-nativedesktop'  = 'Microsoft.VisualStudio.Workload.NativeDesktop'
-        'visualstudio2022-workload-universal'      = 'Microsoft.VisualStudio.Workload.Universal'
-        'visualstudio2022-workload-data'           = 'Microsoft.VisualStudio.Workload.Data'
-        'visualstudio2022-workload-office'         = 'Microsoft.VisualStudio.Workload.Office'
+        'visualstudio2026-workload-netweb'         = 'Microsoft.VisualStudio.Workload.NetWeb'
+        'visualstudio2026-workload-azure'          = 'Microsoft.VisualStudio.Workload.Azure'
+        'visualstudio2026-workload-node'           = 'Microsoft.VisualStudio.Workload.Node'
+        'visualstudio2026-workload-netcrossplat'   = 'Microsoft.VisualStudio.Workload.NetCrossPlat'
+        'visualstudio2026-workload-manageddesktop' = 'Microsoft.VisualStudio.Workload.ManagedDesktop'
+        'visualstudio2026-workload-nativedesktop'  = 'Microsoft.VisualStudio.Workload.NativeDesktop'
+        'visualstudio2026-workload-universal'      = 'Microsoft.VisualStudio.Workload.Universal'
+        'visualstudio2026-workload-data'           = 'Microsoft.VisualStudio.Workload.Data'
+        'visualstudio2026-workload-office'         = 'Microsoft.VisualStudio.Workload.Office'
     }
 
     if (-not $map.ContainsKey($Workload)) {
@@ -335,10 +335,10 @@ function Install-ChocoPackage {
             $useForce = $false
         }
     }
-    elseif ($PackageName -ieq 'visualstudio2022professional') {
+    elseif ($PackageName -ieq 'visualstudio2026professional') {
         $vsReallyInstalled = Test-VSProductInstalled -Edition 'Professional'
         if ($chocoThinksInstalled -and -not $vsReallyInstalled) {
-            Log "$PackageName recorded as installed in Chocolatey, but VS 2022 Professional not found. Forcing reinstall via 'choco install --force'." "Yellow"
+            Log "$PackageName recorded as installed in Chocolatey, but VS 2026 Professional not found. Forcing reinstall via 'choco install --force'." "Yellow"
             $verb = 'install'
             $useForce = $true
         } elseif ($chocoThinksInstalled -and $vsReallyInstalled) {
@@ -361,7 +361,7 @@ function Install-ChocoPackage {
     }
     else {
         # Non-VS packages (and VS workloads): normal choco logic
-        if ($chocoThinksInstalled -and -not ($PackageName -imatch '^visualstudio2022-workload-')) {
+        if ($chocoThinksInstalled -and -not ($PackageName -imatch '^visualstudio2026-workload-')) {
             Log "$PackageName is already installed, skipping." "Green"
             return [pscustomobject]@{ Installed=$false; AlreadyInstalled=$true; RebootRequired=$false; ExitCode=0 }
         } else {
@@ -496,10 +496,10 @@ if ($state.step -eq "core-tools") {
 }
 
 # -------------------------------------------------------
-# Visual Studio 2022 Professional
+# Visual Studio 2026 Professional
 # -------------------------------------------------------
 if ($state.step -eq "visualstudio") {
-    $vsInstallPath = 'C:\Program Files\Microsoft Visual Studio\2022\Professional'
+    $vsInstallPath = 'C:\Program Files\Microsoft Visual Studio\2026\Professional'
     $vsParams = @(
         '--quiet',               # Fully silent install (no UI at all). Use instead of --passive to avoid the GUI.
         '--norestart',           # Do not reboot automatically (we’ll handle a single reboot at the end).
@@ -514,27 +514,27 @@ if ($state.step -eq "visualstudio") {
     ) -join ' '
     
     # Install base IDE
-    $base = Install-ChocoPackage -PackageName 'visualstudio2022professional' -PackageParams $vsParams
+    $base = Install-ChocoPackage -PackageName 'visualstudio2026professional' -PackageParams $vsParams
     if ($base.RebootRequired) { $global:RebootNeeded = $true }
 
     # Check if VS is actually present after the attempt
     $vsOk = Test-VSProductInstalled -Edition 'Professional'
 
     if (-not $vsOk) {
-        Log "Visual Studio 2022 Professional not detected after installation attempt. Skipping workload installs." "Yellow"
+        Log "Visual Studio 2026 Professional not detected after installation attempt. Skipping workload installs." "Yellow"
         Save-State "sqlserver"
     }
     else {
         $workloads = @(
-            'visualstudio2022-workload-netweb',       # ASP.NET and web dev
-            'visualstudio2022-workload-azure',        # Azure dev
-            'visualstudio2022-workload-node',         # Node.js dev
-            'visualstudio2022-workload-netcrossplat', # .NET cross-platform (MAUI/etc.)
-            'visualstudio2022-workload-manageddesktop',  # .NET desktop dev (WPF/WinForms)
-            'visualstudio2022-workload-nativedesktop',   # C++ desktop dev
-            'visualstudio2022-workload-universal',    # UWP
-            'visualstudio2022-workload-data',         # Data storage and processing
-            'visualstudio2022-workload-office'        # Office/SharePoint dev
+            'visualstudio2026-workload-netweb',       # ASP.NET and web dev
+            'visualstudio2026-workload-azure',        # Azure dev
+            'visualstudio2026-workload-node',         # Node.js dev
+            'visualstudio2026-workload-netcrossplat', # .NET cross-platform (MAUI/etc.)
+            'visualstudio2026-workload-manageddesktop',  # .NET desktop dev (WPF/WinForms)
+            'visualstudio2026-workload-nativedesktop',   # C++ desktop dev
+            'visualstudio2026-workload-universal',    # UWP
+            'visualstudio2026-workload-data',         # Data storage and processing
+            'visualstudio2026-workload-office'        # Office/SharePoint dev
         )
 
         # Install VS and workloads in a loop
@@ -748,8 +748,8 @@ if ($state.step -eq "verify") {
     Verify "dotnet" ".NET SDK"
     Verify "code" "Visual Studio Code"
 
-    $vsExe = "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\devenv.exe"
-    if (Test-Path $vsExe) { Log "Visual Studio 2022 Professional detected." "Green" } else { Log "Visual Studio not found." "Red" }
+    $vsExe = "C:\Program Files\Microsoft Visual Studio\2026\Professional\Common7\IDE\devenv.exe"
+    if (Test-Path $vsExe) { Log "Visual Studio 2026 Professional detected." "Green" } else { Log "Visual Studio not found." "Red" }
 
     if (Test-SqlEngineInstalled) { Log "SQL Server engine detected." "Green" }
     else                         { Log "SQL Server engine not found." "Red" }
