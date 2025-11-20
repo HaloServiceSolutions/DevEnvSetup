@@ -487,8 +487,15 @@ $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine")
 # Core Tools
 # -------------------------------------------------------
 if ($state.step -eq "core-tools") {
-    foreach ($pkg in @("vswhere","git","github-desktop","gh","vscode","nodejs-lts","yarn","dotnet-8.0-sdk")) {
-        $res = Install-ChocoPackage $pkg
+    foreach ($pkg in @("vswhere","git","github-desktop","gh","vscode","nodejs","yarn","dotnet-8.0-sdk")) {
+
+        # If installing Node, pass extra args to specify version
+        $extraArgs = @()
+        if ($pkg -ieq "nodejs") {
+            $extraArgs += "--version=16.20.2"
+        }
+
+        $res = Install-ChocoPackage $pkg "" $extraArgs
         if ($res.RebootRequired) { $global:RebootNeeded = $true }
     }
     Log "Core tools complete." "Green"
