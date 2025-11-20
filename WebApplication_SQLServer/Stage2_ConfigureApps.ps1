@@ -119,6 +119,7 @@ function Get-SqlInstancesInstalled {
 }
 
 function Set-VSStartupProjects {
+    [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
         [string]$SolutionPath,                 # e.g. C:\repo\MySolution.sln
@@ -128,8 +129,42 @@ function Set-VSStartupProjects {
 
         [string]$VsProgId,                     # optional: e.g. 'VisualStudio.DTE.17.0'
 
-        [switch]$ShowProjectList               # debug: print all detected projects
+        [switch]$ShowProjectList               # debug: print all detected DTE projects
     )
+
+    if (-not (Test-Path $SolutionPath)) {
+        throw "Solution file not found: $SolutionPath"
+    }
+
+    # Helper: parse the .sln for project name -> unique name (relative path) mapping
+    function Get-SlnProjectMap([string]$slnPath) {
+        $map = @{}
+
+        $lines = Get-Content -LiteralPath $slnPath
+        foreach ($line in $lines) {
+            # Project("{GUID}") = "Name", "Path", "{ProjectGuid}"
+            if ($line -match '^Project\("\{[0-9A-Fa-f\-]+\}"\)\s=\s"([^"]+)",\s"([^"]+)",\s"\{[0-9A-Fa-f\-]+\}"') {
+                $name = $matches[1]
+                $path = $matches[2]          # this is the UniqueName Visual Studio uses
+
+                $lowerName = $name.ToLowerInvariant()
+                $lowerPath = $path.ToLowerInvariant()
+                $baseName  = [System.IO.Path]::GetFileNameWithoutExtension($path).ToLowerInvariant()
+
+                # Map by several keys so we can be forgiving about user input
+                $map[$lowerName]  = $path
+                $map[$lowerPath]  = $path
+                $map[$baseName]   = $path
+            }
+        }
+
+        return $map
+    }
+
+    $slnProjectMap = Get-SlnProjectMap -slnPath $SolutionPath
+    if ($slnProjectMap.Count -eq 0) {
+        throw "No projects were parsed from solution file '$SolutionPath'."
+    }
 
     # Build list of candidate ProgIDs (dynamic discovery, with fallback)
     $progIds = @()
@@ -139,12 +174,9 @@ function Set-VSStartupProjects {
     }
     else {
         try {
-            # Discover installed VisualStudio.DTE.* ProgIDs from registry
             $installed = Get-ChildItem 'Registry::HKEY_CLASSES_ROOT\VisualStudio.DTE.*' -ErrorAction Stop |
                 Select-Object -ExpandProperty PSChildName
 
-            # PSChildName is like "VisualStudio.DTE.17.0"
-            # Sort by numeric version part descending so newest VS is tried first
             $installedSorted = $installed |
                 Sort-Object {
                     [version]($_ -replace '^VisualStudio\.DTE\.','')
@@ -153,7 +185,7 @@ function Set-VSStartupProjects {
             $progIds += $installedSorted
         }
         catch {
-            # Fallback if registry probing fails
+            # Fallback
             $progIds += "VisualStudio.DTE.17.0","VisualStudio.DTE.16.0","VisualStudio.DTE.15.0"
         }
     }
@@ -162,7 +194,7 @@ function Set-VSStartupProjects {
         throw "No VisualStudio.DTE.* ProgIDs found. Is Visual Studio installed?"
     }
 
-    # Create the DTE COM object
+    # Create DTE
     $dte = $null
     foreach ($pids in $progIds) {
         try {
@@ -175,36 +207,35 @@ function Set-VSStartupProjects {
                 }
             }
         }
-        catch {
-            # ignore and try next ProgID
-        }
+        catch { }
     }
 
     if (-not $dte) {
-        throw "Could not create Visual Studio DTE COM object. Tried ProgIDs: $($progIds -join ', ')."
+        throw "Could not create Visual Studio DTE COM object. Tried: $($progIds -join ', ')."
     }
 
     try {
         $dte.MainWindow.Visible = $false
         $dte.UserControl        = $false
 
-        # Open solution (or activate if already open)
+        # Open solution (or reuse if already open)
         if (-not $dte.Solution.IsOpen -or ($dte.Solution.FullName -ne $SolutionPath)) {
             $dte.Solution.Open($SolutionPath)
         }
 
-        # Collect all real projects (handle solution folders) with 1 based indexing
+        Write-Host "DTE opened solution: $($dte.Solution.FullName)" -ForegroundColor Yellow
+        Write-Host "Top level DTE.Solution.Projects.Count: $($dte.Solution.Projects.Count)" -ForegroundColor Yellow
+
+        # Collect all real DTE projects (handle solution folders) with 1 based indexing
         $all = New-Object System.Collections.ArrayList
 
         function Add-ProjectsRecursively([object]$projItems) {
             if (-not $projItems) { return }
-
             for ($i = 1; $i -le $projItems.Count; $i++) {
                 $item = $projItems.Item($i)
                 if ($item -and $item.SubProject) {
                     $sub = $item.SubProject
-                    # Skip solution folder kind
-                    if ($sub -and $sub.Kind -ne "{66A26720-8FB5-11D2-AA7E-00C04F688DDE}") {
+                    if ($sub -and $sub.Kind -ne "{66A26720-8FB5-11D2-AA7E-00C04F688DDE}") { # not solution folder
                         [void]$all.Add($sub)
                     }
                     if ($sub.ProjectItems) {
@@ -214,13 +245,11 @@ function Set-VSStartupProjects {
             }
         }
 
-        # Top level projects
         for ($i = 1; $i -le $dte.Solution.Projects.Count; $i++) {
             $p = $dte.Solution.Projects.Item($i)
             if ($p -eq $null) { continue }
 
             if ($p.Kind -eq "{66A26720-8FB5-11D2-AA7E-00C04F688DDE}") {
-                # Solution folder
                 Add-ProjectsRecursively $p.ProjectItems
             }
             else {
@@ -228,7 +257,7 @@ function Set-VSStartupProjects {
             }
         }
 
-        # Optional sanity check: show what the DTE actually sees
+        # Optional debug output of the final project list DTE sees
         if ($ShowProjectList) {
             Write-Host ""
             Write-Host "=== PROJECTS DETECTED BY VISUAL STUDIO DTE ===" -ForegroundColor Cyan
@@ -237,7 +266,9 @@ function Set-VSStartupProjects {
             Write-Host ""
         }
 
-        # Resolve each requested project name to its UniqueName
+        # Resolve requested project names:
+        # 1. Try DTE project list
+        # 2. If not found, fall back to .sln project map
         $resolved = @()
         foreach ($name in $Projects) {
             $match = $all | Where-Object {
@@ -246,23 +277,31 @@ function Set-VSStartupProjects {
                 ($_.FullName -and ($_.FullName -like "*\$name" -or $_.FullName -like "*$name"))
             } | Select-Object -First 1
 
-            if (-not $match) {
-                throw "Project '$name' not found in solution '$SolutionPath'."
+            if ($match) {
+                $resolved += $match.UniqueName
+                continue
             }
 
-            $resolved += $match.UniqueName
+            # Fallback: use .sln data
+            $key = $name.ToLowerInvariant()
+            if ($slnProjectMap.ContainsKey($key)) {
+                $resolved += $slnProjectMap[$key]
+            }
+            else {
+                throw "Project '$name' not found in DTE or solution file '$SolutionPath'."
+            }
         }
 
         # Set startup projects (array = multi startup)
         $dte.Solution.SolutionBuild.StartupProjects = $resolved
 
-        # SUCCESS OUTPUT
+        # Success output
         Write-Host "Successfully set startup projects:" -ForegroundColor Green
         foreach ($p in $resolved) {
             Write-Host "  $p" -ForegroundColor Green
         }
 
-        # Persist per user state
+        # Persist state
         $dte.Solution.SaveAs($SolutionPath)
     }
     finally {
@@ -682,8 +721,10 @@ if (Test-SqlEngineInstalled) {
 Write-Host "Setting up Visual Studio/API" -ForegroundColor Yellow
 # Set VS starup projects
 try {
-    Set-VSStartupProjects -SolutionPath "C:\nethelpdesk_web\nethelpdesk_api\nethelpdesk_api.sln" `
-                          -Projects @("NetHelpDesk.API", "NetHelpDesk.Auth") `
+    Set-VSStartupProjects `
+        -SolutionPath "C:\nethelpdesk_web\nethelpdesk_api\nethelpdesk_api.sln" `
+        -Projects "NetHelpDesk.API", "NetHelpDesk.Auth" `
+        -ShowProjectList
 }
 catch {
     Write-Host "Failed Visual Studio startup project setup, but continuing anyway: $_" -ForegroundColor Red
