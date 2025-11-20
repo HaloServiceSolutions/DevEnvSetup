@@ -593,7 +593,7 @@ if (Test-SqlEngineInstalled) {
                         " ,'Server={0};Database=DevelopmentDB;User ID=sa;Password=NetHelpDesk99;Trusted_Connection=true;MultipleActiveResultSets=true'",
                         " ,'2.208.1'"
                         " ,'')")-join "`n") -f $hostname
-                Invoke-Sqlcmd -TrustServerCertificate -ServerInstance $sqlInstance -Database master -Query $multitenantTsql -QueryTimeout 0
+                Invoke-Sqlcmd -TrustServerCertificate -ServerInstance $sqlInstance -Database $multitenantDbName -Query $multitenantTsql -QueryTimeout 0
             }
         }
     }
