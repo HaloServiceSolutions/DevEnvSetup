@@ -571,7 +571,7 @@ if (Test-SqlEngineInstalled) {
                 # ==== Run post-create SQL script on DevelopmentDB ====
                 $sqlFile = "C:\Scripts\MultiTenant.sql"
                 if (Test-Path $sqlFile) {
-                    Write-Host "Running $sqlFile against $databaseName ..." -ForegroundColor Cyan
+                    Write-Host "Running $sqlFile against $multitenantDbName ..." -ForegroundColor Cyan
                     Invoke-Sqlcmd -TrustServerCertificate -ServerInstance $sqlInstance -Database $databaseName -InputFile $sqlFile -QueryTimeout 0
                     Write-Host "Post-restore script completed." -ForegroundColor Green
                 } else {
