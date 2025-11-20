@@ -530,6 +530,7 @@ if (Test-SqlEngineInstalled) {
             $query = "SELECT DB_ID(N'$multitenantDbName') AS DbId;"
             $result = Invoke-Sqlcmd -ServerInstance $sqlInstance -Database master -Query $query -TrustServerCertificate
             $skipMultitenantDb = $false
+            $overwriteExistingMtDb = $false
             if ($result.DbId) {
                 Write-Host "Database '$multitenantDbName' already exists." -ForegroundColor Yellow
 
@@ -543,6 +544,8 @@ if (Test-SqlEngineInstalled) {
                     if ($response -notin @('Y', 'y', 'Yes', 'yes')) {
                         Write-Host "Skipping create for '$multitenantDbName'." -ForegroundColor Cyan
                         $skipMultitenantDb = $true
+                    } else {
+                        $overwriteExistingMtDb = $true
                     }
                 }
             }
@@ -552,7 +555,14 @@ if (Test-SqlEngineInstalled) {
             # Create Multitenant DB
             if ($skipMultitenantDb -eq $false)
             {
-                $multitenantTsql = "CREATE DATABASE [Multitenant]"
+                if ($overwriteExistingMtDb) {
+                    $multitenantTsql  = "IF DB_ID('$multitenantDbName') IS NOT NULL BEGIN "
+                    $multitenantTsql += "ALTER DATABASE [$multitenantDbName] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; "
+                    $multitenantTsql += "DROP DATABASE [$multitenantDbName]; "
+                    $multitenantTsql += "END; "
+                }
+
+                $multitenantTsql += "CREATE DATABASE [$multitenantDbName];"
 
                 Write-Host "Creating Multitenant database." -ForegroundColor Cyan
                 Invoke-Sqlcmd -TrustServerCertificate -ServerInstance $sqlInstance -Database master -Query $multitenantTsql -QueryTimeout 0
