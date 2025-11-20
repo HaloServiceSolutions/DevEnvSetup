@@ -728,8 +728,7 @@ Write-Host "Setting up Visual Studio/API" -ForegroundColor Yellow
 try {
     Set-VSStartupProjects `
         -SolutionPath "C:\nethelpdesk_web\nethelpdesk_api\nethelpdesk_api.sln" `
-        -Projects "NetHelpDesk.API", "NetHelpDesk.Auth" `
-        -ShowProjectList
+        -Projects "NetHelpDesk.API", "NetHelpDesk.Auth"
 }
 catch {
     Write-Host "Failed Visual Studio startup project setup, but continuing anyway: $_" -ForegroundColor Red
