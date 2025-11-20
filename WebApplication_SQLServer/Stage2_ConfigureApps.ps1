@@ -256,6 +256,12 @@ function Set-VSStartupProjects {
         # Set startup projects (array = multi startup)
         $dte.Solution.SolutionBuild.StartupProjects = $resolved
 
+        # SUCCESS OUTPUT
+        Write-Host "Successfully set startup projects:" -ForegroundColor Green
+        foreach ($p in $resolved) {
+            Write-Host "  $p" -ForegroundColor Green
+        }
+
         # Persist per user state
         $dte.Solution.SaveAs($SolutionPath)
     }
@@ -678,7 +684,6 @@ Write-Host "Setting up Visual Studio/API" -ForegroundColor Yellow
 try {
     Set-VSStartupProjects -SolutionPath "C:\nethelpdesk_web\nethelpdesk_api\nethelpdesk_api.sln" `
                           -Projects @("NetHelpDesk.API", "NetHelpDesk.Auth") `
-                          -ShowProjectList
 }
 catch {
     Write-Host "Failed Visual Studio startup project setup, but continuing anyway: $_" -ForegroundColor Red
