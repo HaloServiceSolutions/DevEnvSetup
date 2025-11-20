@@ -127,18 +127,57 @@ function Set-VSStartupProjects {
         [string]$VsProgId                      # optional: e.g. 'VisualStudio.DTE.17.0'
     )
 
-    # Try VS2022 (17.0), then 2019 (16.0), etc., unless an explicit ProgID is passed
+    # Build list of candidate ProgIDs
     $progIds = @()
-    if ($VsProgId) { $progIds += $VsProgId } else { $progIds += "VisualStudio.DTE.17.0","VisualStudio.DTE.16.0","VisualStudio.DTE.15.0" }
 
+    if ($VsProgId) {
+        # Caller explicitly requested a ProgID
+        $progIds += $VsProgId
+    }
+    else {
+        try {
+            # Discover installed VisualStudio.DTE.* ProgIDs from the registry
+            $installed = Get-ChildItem 'Registry::HKEY_CLASSES_ROOT\VisualStudio.DTE.*' -ErrorAction Stop |
+                Select-Object -ExpandProperty PSChildName
+
+            # PSChildName is like "VisualStudio.DTE.17.0"
+            # Sort by numeric version part descending so newest VS is tried first
+            $installedSorted = $installed |
+                Sort-Object {
+                    # Extract "17.0" etc and convert to [version] for proper sorting
+                    [version]($_ -replace '^VisualStudio\.DTE\.','')
+                } -Descending
+
+            $progIds += $installedSorted
+        }
+        catch {
+            # Fallback hard coded list if registry probing fails for some reason
+            $progIds += "VisualStudio.DTE.17.0","VisualStudio.DTE.16.0","VisualStudio.DTE.15.0"
+        }
+    }
+
+    if (-not $progIds -or $progIds.Count -eq 0) {
+        throw "No VisualStudio.DTE.* ProgIDs found. Is Visual Studio installed?"
+    }
+
+    # Create the DTE COM object
     $dte = $null
     foreach ($pids in $progIds) {
         try {
             $t = [type]::GetTypeFromProgID($pids, $true)
-            if ($t) { $dte = [Activator]::CreateInstance($t); if ($dte) { break } }
-        } catch { }
+            if ($t) {
+                $dte = [Activator]::CreateInstance($t)
+                if ($dte) { break }
+            }
+        }
+        catch {
+            # try next ProgID
+        }
     }
-    if (-not $dte) { throw "Could not create Visual Studio DTE COM object. Is Visual Studio installed?" }
+
+    if (-not $dte) {
+        throw "Could not create Visual Studio DTE COM object. Tried ProgIDs: $($progIds -join ', ')."
+    }
 
     try {
         $dte.MainWindow.Visible = $false
@@ -168,12 +207,13 @@ function Set-VSStartupProjects {
             if ($p -eq $null) { continue }
             if ($p.Kind -eq "{66A26720-8FB5-11D2-AA7E-00C04F688DDE}") {
                 Add-ProjectsRecursively $p.ProjectItems
-            } else {
+            }
+            else {
                 [void]$all.Add($p)
             }
         }
 
-        # Resolve each requested project to its UniqueName (what DTE expects for StartupProjects)
+        # Resolve each requested project to its UniqueName
         $resolved = @()
         foreach ($name in $Projects) {
             $match = $all | Where-Object {
@@ -182,19 +222,23 @@ function Set-VSStartupProjects {
                 ($_.FullName -and ($_.FullName -like "*\$name" -or $_.FullName -like "*$name"))
             } | Select-Object -First 1
 
-            if (-not $match) { throw "Project '$name' not found in solution '$SolutionPath'." }
+            if (-not $match) {
+                throw "Project '$name' not found in solution '$SolutionPath'."
+            }
             $resolved += $match.UniqueName
         }
 
-        # Set startup projects (array = multi-startup)
+        # Set startup projects (array = multi startup)
         $dte.Solution.SolutionBuild.StartupProjects = $resolved
 
-        # Persist per-user state
+        # Persist per user state
         $dte.Solution.SaveAs($SolutionPath)
     }
     finally {
-        try { $dte.Quit() } catch { }
-        [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($dte)
+        if ($dte) {
+            try { $dte.Quit() } catch { }
+            try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($dte) } catch { }
+        }
     }
 }
 
