@@ -127,7 +127,7 @@ function Set-VSStartupProjects {
         [Parameter(Mandatory = $true)]
         [string[]]$Projects,                   # names or UniqueNames; can be multiple
 
-        [string]$VsProgId,                     # optional: e.g. 'VisualStudio.DTE.17.0'
+        [string]$VsProgId,                     # optional: e.g. 'VisualStudio.DTE.18.0' for VS 2026
 
         [switch]$ShowProjectList               # debug: print all detected DTE projects
     )
@@ -136,7 +136,7 @@ function Set-VSStartupProjects {
         throw "Solution file not found: $SolutionPath"
     }
 
-    # Helper: parse the .sln for project name -> unique name (relative path) mapping
+    # Helper: parse the .sln for project name -> unique name mapping
     function Get-SlnProjectMap([string]$slnPath) {
         $map = @{}
 
@@ -145,16 +145,15 @@ function Set-VSStartupProjects {
             # Project("{GUID}") = "Name", "Path", "{ProjectGuid}"
             if ($line -match '^Project\("\{[0-9A-Fa-f\-]+\}"\)\s=\s"([^"]+)",\s"([^"]+)",\s"\{[0-9A-Fa-f\-]+\}"') {
                 $name = $matches[1]
-                $path = $matches[2]          # this is the UniqueName Visual Studio uses
+                $path = $matches[2]  # this is the UniqueName VS uses
 
                 $lowerName = $name.ToLowerInvariant()
                 $lowerPath = $path.ToLowerInvariant()
                 $baseName  = [System.IO.Path]::GetFileNameWithoutExtension($path).ToLowerInvariant()
 
-                # Map by several keys so we can be forgiving about user input
-                $map[$lowerName]  = $path
-                $map[$lowerPath]  = $path
-                $map[$baseName]   = $path
+                $map[$lowerName] = $path
+                $map[$lowerPath] = $path
+                $map[$baseName]  = $path
             }
         }
 
@@ -185,8 +184,8 @@ function Set-VSStartupProjects {
             $progIds += $installedSorted
         }
         catch {
-            # Fallback
-            $progIds += "VisualStudio.DTE.17.0","VisualStudio.DTE.16.0","VisualStudio.DTE.15.0"
+            # Fallback - adjust if you want
+            $progIds += "VisualStudio.DTE.18.0","VisualStudio.DTE.17.0","VisualStudio.DTE.16.0","VisualStudio.DTE.15.0"
         }
     }
 
@@ -196,13 +195,15 @@ function Set-VSStartupProjects {
 
     # Create DTE
     $dte = $null
+    $usedProgId = $null
     foreach ($pids in $progIds) {
         try {
             $t = [type]::GetTypeFromProgID($pids, $true)
             if ($t) {
                 $dte = [Activator]::CreateInstance($t)
                 if ($dte) {
-                    Write-Verbose "Using DTE ProgID: $pids"
+                    $usedProgId = $pids
+                    Write-Host "Using DTE ProgID: $usedProgId" -ForegroundColor Yellow
                     break
                 }
             }
@@ -257,7 +258,7 @@ function Set-VSStartupProjects {
             }
         }
 
-        # Optional debug output of the final project list DTE sees
+        # Optional DTE project list debug
         if ($ShowProjectList) {
             Write-Host ""
             Write-Host "=== PROJECTS DETECTED BY VISUAL STUDIO DTE ===" -ForegroundColor Cyan
@@ -267,8 +268,8 @@ function Set-VSStartupProjects {
         }
 
         # Resolve requested project names:
-        # 1. Try DTE project list
-        # 2. If not found, fall back to .sln project map
+        # 1 - Try DTE project list
+        # 2 - Fallback to .sln project map (so SDK projects still work)
         $resolved = New-Object System.Collections.Generic.List[string]
 
         foreach ($name in $Projects) {
@@ -283,7 +284,6 @@ function Set-VSStartupProjects {
                 continue
             }
 
-            # Fallback: use .sln data
             $key = $name.ToLowerInvariant()
             if ($slnProjectMap.ContainsKey($key)) {
                 [void]$resolved.Add($slnProjectMap[$key])
@@ -293,28 +293,21 @@ function Set-VSStartupProjects {
             }
         }
 
-        # Explicitly cast to object[] for COM
+        # DTE multi startup expects object[]
         $startupArray = [object[]]$resolved.ToArray()
-
-        # Set startup projects (multi startup = object[] of UniqueName strings)
         $dte.Solution.SolutionBuild.StartupProjects = $startupArray
 
-        # Read back what VS thinks the startup projects are
+        # Save user state, including .suo
+        $dte.ExecuteCommand("File.SaveAll")
+
+        # Read back what VS thinks is configured
         $current = $dte.Solution.SolutionBuild.StartupProjects
-        $currentList = @()
-        if ($current -is [object[]]) {
-            $currentList = $current
-        } elseif ($current -ne $null) {
-            $currentList = @($current)
-        }
+        $currentList = if ($current -is [object[]]) { $current } elseif ($current) { @($current) } else { @() }
 
         Write-Host "Successfully set startup projects:" -ForegroundColor Green
         foreach ($p in $currentList) {
             Write-Host "  $p" -ForegroundColor Green
         }
-
-        # Persist state
-        $dte.Solution.SaveAs($SolutionPath)
     }
     finally {
         if ($dte) {
