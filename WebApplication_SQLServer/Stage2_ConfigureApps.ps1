@@ -572,7 +572,7 @@ if (Test-SqlEngineInstalled) {
                 $sqlFile = "C:\Scripts\MultiTenant.sql"
                 if (Test-Path $sqlFile) {
                     Write-Host "Running $sqlFile against $multitenantDbName ..." -ForegroundColor Cyan
-                    Invoke-Sqlcmd -TrustServerCertificate -ServerInstance $sqlInstance -Database $databaseName -InputFile $sqlFile -QueryTimeout 0
+                    Invoke-Sqlcmd -TrustServerCertificate -ServerInstance $sqlInstance -Database $multitenantDbName -InputFile $sqlFile -QueryTimeout 0
                     Write-Host "Post-restore script completed." -ForegroundColor Green
                 } else {
                     Write-Host "SQL script not found: $sqlFile" -ForegroundColor Red
