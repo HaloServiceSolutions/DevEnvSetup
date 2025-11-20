@@ -120,48 +120,80 @@ function Get-SqlInstancesInstalled {
 
 function Set-VSStartupProjects {
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [string]$SolutionPath,                 # e.g. C:\repo\MySolution.sln
-        [Parameter(Mandatory=$true)]
+
+        [Parameter(Mandatory = $true)]
         [string[]]$Projects,                   # names or UniqueNames; can be multiple
-        [string]$VsProgId,                     # optional ProgID: 'VisualStudio.DTE.17.0'
-        [switch]$ShowProjectList               # sanity check output
+
+        [string]$VsProgId,                     # optional: e.g. 'VisualStudio.DTE.17.0'
+
+        [switch]$ShowProjectList               # debug: print all detected projects
     )
 
-    # Build list of candidate ProgIDs
+    # Build list of candidate ProgIDs (dynamic discovery, with fallback)
     $progIds = @()
+
     if ($VsProgId) {
         $progIds += $VsProgId
-    } else {
-        # Simple list; can be replaced with dynamic discovery if needed
-        $progIds += "VisualStudio.DTE.17.0","VisualStudio.DTE.16.0","VisualStudio.DTE.15.0"
+    }
+    else {
+        try {
+            # Discover installed VisualStudio.DTE.* ProgIDs from registry
+            $installed = Get-ChildItem 'Registry::HKEY_CLASSES_ROOT\VisualStudio.DTE.*' -ErrorAction Stop |
+                Select-Object -ExpandProperty PSChildName
+
+            # PSChildName is like "VisualStudio.DTE.17.0"
+            # Sort by numeric version part descending so newest VS is tried first
+            $installedSorted = $installed |
+                Sort-Object {
+                    [version]($_ -replace '^VisualStudio\.DTE\.','')
+                } -Descending
+
+            $progIds += $installedSorted
+        }
+        catch {
+            # Fallback if registry probing fails
+            $progIds += "VisualStudio.DTE.17.0","VisualStudio.DTE.16.0","VisualStudio.DTE.15.0"
+        }
     }
 
-    # Create DTE
+    if (-not $progIds -or $progIds.Count -eq 0) {
+        throw "No VisualStudio.DTE.* ProgIDs found. Is Visual Studio installed?"
+    }
+
+    # Create the DTE COM object
     $dte = $null
     foreach ($pids in $progIds) {
         try {
             $t = [type]::GetTypeFromProgID($pids, $true)
             if ($t) {
                 $dte = [Activator]::CreateInstance($t)
-                if ($dte) { break }
+                if ($dte) {
+                    Write-Verbose "Using DTE ProgID: $pids"
+                    break
+                }
             }
-        } catch { }
+        }
+        catch {
+            # ignore and try next ProgID
+        }
     }
+
     if (-not $dte) {
         throw "Could not create Visual Studio DTE COM object. Tried ProgIDs: $($progIds -join ', ')."
     }
 
     try {
         $dte.MainWindow.Visible = $false
-        $dte.UserControl = $false
+        $dte.UserControl        = $false
 
-        # Open solution
+        # Open solution (or activate if already open)
         if (-not $dte.Solution.IsOpen -or ($dte.Solution.FullName -ne $SolutionPath)) {
             $dte.Solution.Open($SolutionPath)
         }
 
-        # Prepare list of all real projects
+        # Collect all real projects (handle solution folders) with 1 based indexing
         $all = New-Object System.Collections.ArrayList
 
         function Add-ProjectsRecursively([object]$projItems) {
@@ -171,7 +203,7 @@ function Set-VSStartupProjects {
                 $item = $projItems.Item($i)
                 if ($item -and $item.SubProject) {
                     $sub = $item.SubProject
-                    # Not a solution folder
+                    # Skip solution folder kind
                     if ($sub -and $sub.Kind -ne "{66A26720-8FB5-11D2-AA7E-00C04F688DDE}") {
                         [void]$all.Add($sub)
                     }
@@ -188,13 +220,15 @@ function Set-VSStartupProjects {
             if ($p -eq $null) { continue }
 
             if ($p.Kind -eq "{66A26720-8FB5-11D2-AA7E-00C04F688DDE}") {
+                # Solution folder
                 Add-ProjectsRecursively $p.ProjectItems
-            } else {
+            }
+            else {
                 [void]$all.Add($p)
             }
         }
 
-        # SANITY CHECK (optional)
+        # Optional sanity check: show what the DTE actually sees
         if ($ShowProjectList) {
             Write-Host ""
             Write-Host "=== PROJECTS DETECTED BY VISUAL STUDIO DTE ===" -ForegroundColor Cyan
@@ -203,7 +237,7 @@ function Set-VSStartupProjects {
             Write-Host ""
         }
 
-        # Resolve requested project names
+        # Resolve each requested project name to its UniqueName
         $resolved = @()
         foreach ($name in $Projects) {
             $match = $all | Where-Object {
@@ -219,7 +253,7 @@ function Set-VSStartupProjects {
             $resolved += $match.UniqueName
         }
 
-        # Set startup projects
+        # Set startup projects (array = multi startup)
         $dte.Solution.SolutionBuild.StartupProjects = $resolved
 
         # Persist per user state
@@ -643,8 +677,8 @@ Write-Host "Setting up Visual Studio/API" -ForegroundColor Yellow
 # Set VS starup projects
 try {
     Set-VSStartupProjects -SolutionPath "C:\nethelpdesk_web\nethelpdesk_api\nethelpdesk_api.sln" `
-                          -Projects @("NetHelpDesk.API", "NetHelpDesk.Auth")
-                          -ShowProjectList $true
+                          -Projects @("NetHelpDesk.API", "NetHelpDesk.Auth") `
+                          -ShowProjectList
 }
 catch {
     Write-Host "Failed Visual Studio startup project setup, but continuing anyway: $_" -ForegroundColor Red
