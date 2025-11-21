@@ -41,6 +41,12 @@ CREATE TABLE [dbo].[AppTenant](
 	[appsnoozedate] [datetime] NULL,
 	[envName] [nvarchar](50) NULL,
 	[DBID] [uniqueidentifier] NULL,
+	[lastrestored] [datetime] NULL,
+	[AppVersionsDNSID] [int] NULL,
+	[VersionGroupFixed] [bit] NOT NULL,
+	[source_apptenant_id] [int] NULL,
+	[db_status] [int] NULL,
+	[redisHash] [nvarchar](10) NULL,
  CONSTRAINT [PK__AppTenan__3213E83F22E08109] PRIMARY KEY CLUSTERED 
 (
 	[id] ASC
