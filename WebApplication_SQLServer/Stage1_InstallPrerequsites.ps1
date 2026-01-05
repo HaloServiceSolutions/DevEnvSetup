@@ -726,7 +726,7 @@ if ($state.step -eq "sqlserver") {
 # -------------------------------------------------------
 if ($state.step -eq "optional-tools") {
     Log "Installing optional tools..." "Cyan"
-    foreach ($pkg in @("postman","7zip","googlechrome")) {
+    foreach ($pkg in @("postman","7zip","googlechrome", "aws-vpn-client")) {
         $res = Install-ChocoPackage $pkg
         if ($res.RebootRequired) { $global:RebootNeeded = $true }
     }
