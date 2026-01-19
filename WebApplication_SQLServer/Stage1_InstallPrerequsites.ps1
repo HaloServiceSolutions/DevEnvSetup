@@ -492,7 +492,7 @@ if ($state.step -eq "core-tools") {
         # If installing Node, pass extra args to specify version
         $extraArgs = @()
         if ($pkg -ieq "nodejs") {
-            $extraArgs += "--version=16.20.2"
+            $extraArgs += "--version=16.20.1"
         }
 
         $res = Install-ChocoPackage $pkg "" $extraArgs
