@@ -383,7 +383,7 @@ function Install-ChocoPackage {
     if ($PackageParams) { $chocoArgs += @("--package-parameters", "`"$PackageParams`"") }
 
     # Allow callers to add extra choco switches if they want (timeouts, etc.)
-    if ($ExtraChocoArgs) { $chocoArgs += $ExtraChocoArgs }
+    if ($ExtraChocoArgs) { $chocoArgs += $($ExtraChocoArgs -join ' ') }
 
     # Run the install quietly. This avoids streaming verbose MSI/EXE logs to the console.
     # To capture full output, uncomment the Redirect lines and set file paths.
