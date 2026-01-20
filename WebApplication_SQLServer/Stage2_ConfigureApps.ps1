@@ -401,7 +401,7 @@ if ($loggedIn) {
     }
 } else {
     Write-Host "Not logged in. Starting GitHub CLI login..." -ForegroundColor Cyan
-    & $gh auth login --hostname github.com --web --scopes "repo,read:org,user:email"
+    cmd /c "`"$gh`" auth login --hostname github.com --web --scopes repo,read:org,user:email"
     if ($LASTEXITCODE -ne 0) {
         Write-Host "GitHub login failed or was cancelled." -ForegroundColor Red
         exit 1
